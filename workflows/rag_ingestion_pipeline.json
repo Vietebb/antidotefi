@@ -1,0 +1,240 @@
+{
+  "id": "SG264jARtvjqDyEz",
+  "name": "Quant Terminal: RAG Ingestion Pipeline",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-trigger-rag",
+      "name": "Manual Trigger (RAG Ingest)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        220,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL || 'https://your-project.supabase.co' }}/rest/v1/rpc/match_rag_memory",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY || 'YOUR_SUPABASE_SERVICE_ROLE_KEY' }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + ($env.SUPABASE_SERVICE_ROLE_KEY || 'YOUR_SUPABASE_SERVICE_ROLE_KEY') }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"query_embedding\": \"[0]\", \"match_threshold\": 0.0, \"match_count\": 1}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "test-rag-connection",
+      "name": "Test RAG Table Connection",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        500,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// RAG Ingestion \u2014 Documents are injected via the companion script.\n// This node processes the injected documents array.\n// The script writes documents to n8n's static data before triggering.\n\n// Get documents from the input (injected by the companion ingest script)\nconst input = $input.first();\n\n// If no documents provided, use placeholder for testing\nconst documents = [\n  {\n    title: 'Crypto Market Fundamentals - Bitcoin Halving 2024',\n    content: 'The Bitcoin halving event in April 2024 reduced block rewards from 6.25 BTC to 3.125 BTC. Historically, halvings have preceded bull runs within 12-18 months. The reduced supply issuance combined with growing institutional demand from spot ETFs creates potential supply shock dynamics. Previous halvings in 2012, 2016, and 2020 all preceded significant price appreciation.',\n    source: 'rag_knowledge_base',\n    category: 'fundamentals'\n  },\n  {\n    title: 'Ethereum Layer 2 Ecosystem Growth',\n    content: 'Ethereum Layer 2 solutions (Arbitrum, Optimism, Base, zkSync) have collectively surpassed $30B in TVL. The Dencun upgrade introducing EIP-4844 (Proto-Danksharding) reduced L2 transaction costs by 90-99%. This has accelerated DeFi migration to L2s and is expected to drive ETH demand through data availability fees.',\n    source: 'rag_knowledge_base',\n    category: 'ecosystem'\n  },\n  {\n    title: 'Solana DeFi and Memecoin Activity',\n    content: 'Solana has seen explosive growth in DeFi TVL and memecoin trading volume. Jupiter DEX aggregator processes over $1B daily volume. The Solana network handles 2000+ TPS consistently. Key risk factors include periodic network congestion during high-activity memecoin launches and validator centralization concerns.',\n    source: 'rag_knowledge_base',\n    category: 'ecosystem'\n  },\n  {\n    title: 'Crypto Regulation Landscape 2024-2025',\n    content: 'The SEC approved 11 spot Bitcoin ETFs in January 2024, with cumulative inflows exceeding $50B. MiCA regulation in the EU went into effect in December 2024, providing regulatory clarity for stablecoins and crypto asset service providers. Hong Kong and Singapore continue competing for crypto hub status with progressive licensing frameworks.',\n    source: 'rag_knowledge_base',\n    category: 'regulation'\n  },\n  {\n    title: 'Stablecoin Market Dynamics',\n    content: 'USDT market cap exceeds $110B, USDC at $32B. Stablecoin transaction volume surpasses Visa annually. Key risks include de-peg events (as seen with UST in 2022), regulatory crackdowns on unbacked stablecoins, and banking relationship risks. Circle USDC maintains full reserves in US Treasuries and cash.',\n    source: 'rag_knowledge_base',\n    category: 'market_structure'\n  },\n  {\n    title: 'Institutional Crypto Adoption Trends',\n    content: 'BlackRock, Fidelity, and other major asset managers now offer spot crypto ETFs. Traditional finance institutions including JPMorgan, Goldman Sachs, and Morgan Stanley provide crypto exposure to clients. Corporate treasury adoption beyond MicroStrategy includes Tesla, Block, and multiple mining companies. Pension funds in Wisconsin and Michigan have allocated to Bitcoin ETFs.',\n    source: 'rag_knowledge_base',\n    category: 'institutional'\n  },\n  {\n    title: 'DeFi Protocol Risk Taxonomy',\n    content: 'Major DeFi risk categories: Smart contract exploits (over $3B lost in 2022-2023), Oracle manipulation attacks, governance attacks via flash loans, impermanent loss in AMM liquidity provision, bridge exploits (Wormhole, Ronin), and MEV extraction reducing user trade execution quality. Best practices include multi-sig governance, time-locked upgrades, and formal verification.',\n    source: 'rag_knowledge_base',\n    category: 'risk'\n  },\n  {\n    title: 'Crypto Market Microstructure',\n    content: 'Binance maintains 40-50% of global spot trading volume. CEX vs DEX volume ratio approximately 85:15. Crypto market operates 24/7 with highest volatility during US market overlap (13:30-21:00 UTC). Weekend liquidity typically 30-40% lower than weekday. Funding rates on perpetual futures serve as key sentiment indicators \u2014 sustained positive rates above 0.05% indicate overleveraged longs.',\n    source: 'rag_knowledge_base',\n    category: 'market_structure'\n  }\n];\n\nreturn documents.map(doc => ({\n  json: doc\n}));"
+      },
+      "id": "load-documents",
+      "name": "Load Knowledge Documents",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "key",
+              "value": "={{ $env.GEMINI_API_KEY || 'YOUR_GEMINI_API_KEY' }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'models/gemini-embedding-001', content: { parts: [{ text: $json.title + ': ' + $json.content }] }, outputDimensionality: 768 }) }}",
+        "options": {}
+      },
+      "id": "embed-document",
+      "name": "Gemini Embed Document",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const embResp = $('Gemini Embed Document').first().json;\nconst doc = $('Load Knowledge Documents').first().json;\n\nconst embedding = embResp?.embedding?.values || [];\n\nif (embedding.length === 0) {\n  throw new Error('Failed to generate embedding for: ' + doc.title);\n}\n\nreturn [{\n  json: {\n    content: doc.title + ': ' + doc.content,\n    metadata: {\n      source: doc.source || 'unknown',\n      category: doc.category || 'general',\n      title: doc.title,\n      ingested_at: new Date().toISOString()\n    },\n    embedding: embedding\n  }\n}];"
+      },
+      "id": "prepare-upsert",
+      "name": "Prepare RAG Upsert Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1380,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL || 'https://your-project.supabase.co' }}/rest/v1/rag_memory",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY || 'YOUR_SUPABASE_SERVICE_ROLE_KEY' }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + ($env.SUPABASE_SERVICE_ROLE_KEY || 'YOUR_SUPABASE_SERVICE_ROLE_KEY') }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ content: $json.content, metadata: $json.metadata, embedding: JSON.stringify($json.embedding) }) }}",
+        "options": {}
+      },
+      "id": "upsert-rag",
+      "name": "Upsert to Supabase rag_memory",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1660,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const results = $('Upsert to Supabase rag_memory').all();\n\nlet successes = 0;\nlet failures = 0;\nlet errors = [];\n\nfor (const item of results) {\n  if (item.json?.id) {\n    successes++;\n  } else if (Array.isArray(item.json) && item.json[0]?.id) {\n    successes++;\n  } else {\n    failures++;\n    errors.push(JSON.stringify(item.json).slice(0, 200));\n  }\n}\n\nreturn [{\n  json: {\n    total_processed: results.length,\n    successes,\n    failures,\n    errors: errors.slice(0, 5),\n    timestamp: new Date().toISOString(),\n    summary: `RAG Ingestion Complete: ${successes} docs ingested, ${failures} failures.`\n  }\n}];"
+      },
+      "id": "ingest-summary",
+      "name": "Ingestion Summary Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1940,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger (RAG Ingest)": {
+      "main": [
+        [
+          {
+            "node": "Test RAG Table Connection",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Test RAG Table Connection": {
+      "main": [
+        [
+          {
+            "node": "Load Knowledge Documents",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Knowledge Documents": {
+      "main": [
+        [
+          {
+            "node": "Gemini Embed Document",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Embed Document": {
+      "main": [
+        [
+          {
+            "node": "Prepare RAG Upsert Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare RAG Upsert Payload": {
+      "main": [
+        [
+          {
+            "node": "Upsert to Supabase rag_memory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert to Supabase rag_memory": {
+      "main": [
+        [
+          {
+            "node": "Ingestion Summary Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "staticData": null
+}

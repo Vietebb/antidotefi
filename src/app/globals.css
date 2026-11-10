@@ -1,0 +1,138 @@
+@import "tailwindcss";
+@config "../../tailwind.config.ts";
+
+@theme inline {
+  --color-terminal-obsidian: #07040d;
+  --color-terminal-black: #0b0716;
+  --color-terminal-card: #0f091d;
+  --color-terminal-card-hover: #18102e;
+  --color-terminal-border: #25183e;
+  --color-terminal-border-light: #42286e;
+  --color-terminal-text: #f1f5f9;
+  --color-terminal-muted: #94a3b8;
+  --color-terminal-green: #4ade80;
+  --color-terminal-green-glow: #22c55e;
+  --color-terminal-green-muted: #052e16;
+  --color-terminal-red: #f43f5e;
+  --color-terminal-red-glow: #e11d48;
+  --color-terminal-red-muted: #4c0519;
+  --color-terminal-amber: #fbbf24;
+  --color-terminal-amber-glow: #f59e0b;
+  --color-terminal-amber-muted: #451a03;
+  --color-terminal-cyan: #38bdf8;
+  --color-terminal-purple: #a855f7;
+  --color-terminal-fuchsia: #d946ef;
+  --color-terminal-emerald: #4ade80;
+
+  --font-mono: "JetBrains Mono", "Fira Code", "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+:root {
+  --bg-obsidian: #07040d;
+  --bg-card: #0f091d;
+  --terminal-purple: #a855f7;
+  --terminal-cyan: #38bdf8;
+  --terminal-fuchsia: #d946ef;
+  --terminal-emerald: #4ade80;
+  --terminal-red: #f43f5e;
+  --terminal-amber: #fbbf24;
+}
+
+body {
+  background-color: #07040d;
+  color: #f1f5f9;
+  font-family: var(--font-mono);
+  font-feature-settings: "tnum", "zero", "ss01";
+  min-height: 100vh;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Purple Geometry 48px Signature Grid Overlay */
+.purple-geometry-grid {
+  background-color: #07040d;
+  background-image: 
+    linear-gradient(to right, rgba(168, 85, 247, 0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(168, 85, 247, 0.04) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+
+/* Retain crt-grid as alias pointing to Purple Geometry grid */
+.crt-grid {
+  background-size: 48px 48px;
+  background-image: 
+    linear-gradient(to right, rgba(168, 85, 247, 0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(168, 85, 247, 0.04) 1px, transparent 1px);
+}
+
+/* Ambient Purple & Cyan Glow Elements */
+.glow-orb-violet {
+  position: absolute;
+  width: 550px;
+  height: 550px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(168, 85, 247, 0.18) 0%, transparent 70%);
+  filter: blur(100px);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.glow-orb-cyan {
+  position: absolute;
+  width: 500px;
+  height: 500px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(56, 189, 248, 0.14) 0%, transparent 70%);
+  filter: blur(110px);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Elevated Glass Surfaces (#0f091d @ 75% opacity with 20px blur) */
+.terminal-panel,
+.elevated-glass-panel {
+  background-color: rgba(15, 9, 29, 0.75);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(37, 24, 62, 0.9);
+  box-shadow: 0 8px 32px 0 rgba(7, 4, 13, 0.8), 0 0 0 1px rgba(168, 85, 247, 0.06);
+}
+
+.terminal-card,
+.elevated-glass-card {
+  background-color: rgba(15, 9, 29, 0.75);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(37, 24, 62, 0.8);
+  box-shadow: 0 8px 24px 0 rgba(7, 4, 13, 0.6);
+  transition: all 250ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.terminal-card:hover,
+.elevated-glass-card:hover {
+  border-color: rgba(168, 85, 247, 0.5);
+  background-color: rgba(24, 16, 46, 0.85);
+  box-shadow: 0 12px 36px 0 rgba(7, 4, 13, 0.8), 0 0 20px rgba(168, 85, 247, 0.2);
+}
+
+/* Tabular Financial Metrics */
+.tabular-data {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+/* Precision Micro Scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: #07040d;
+}
+::-webkit-scrollbar-thumb {
+  background: #25183e;
+  border-radius: 0px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #a855f7;
+}

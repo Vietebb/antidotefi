@@ -1,0 +1,683 @@
+{
+  "id": "qpVYXMzvSohhsH_t",
+  "name": "Quant Terminal: Active Quant Engine (15-Min Cron)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0,15,30,45 * * * *"
+            }
+          ]
+        }
+      },
+      "id": "cron-15min",
+      "name": "15-Min Cron Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        200,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://www.reddit.com/r/CryptoCurrency/top/.rss?t=hour",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) QuantTerminal/1.0"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text",
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "reddit-rss",
+      "name": "Reddit Crypto RSS",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://www.coindesk.com/arc/outboundfeeds/rss",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) QuantTerminal/1.0"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text",
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "coindesk-rss",
+      "name": "CoinDesk RSS",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        760,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract headlines safely from both RSS feeds\nconst redditRaw = $('Reddit Crypto RSS').first()?.json?.data || '';\nconst coindeskRaw = $('CoinDesk RSS').first()?.json?.data || '';\n\nfunction extractTitles(xml) {\n  if (typeof xml !== 'string') return [];\n  const titles = [];\n  const re = /<title[^>]*>(?:<!\\[CDATA\\[)?(.*?)(?:\\]\\]>)?<\\/title>/gi;\n  let m;\n  while ((m = re.exec(xml)) !== null) {\n    const t = m[1].replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&#39;/g,\"'\").replace(/&quot;/g,'\"').trim();\n    if (t && !t.includes('CryptoCurrency') && !t.includes('CoinDesk') && t.length > 10) {\n      titles.push(t);\n    }\n  }\n  return titles.slice(0, 15);\n}\n\nconst redditHeadlines = extractTitles(redditRaw);\nconst coindeskHeadlines = extractTitles(coindeskRaw);\n\nreturn [{\n  json: {\n    redditHeadlines: redditHeadlines,\n    coindeskHeadlines: coindeskHeadlines,\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "extract-headlines",
+      "name": "Extract Headlines",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "key",
+              "value": "={{ $env.GEMINI_API_KEY || 'YOUR_GEMINI_API_KEY' }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ contents: [{ parts: [{ text: `You are a crypto market consensus detector. Analyze these two independent news sources and find events that appear in BOTH feeds (cross-verified consensus).\n\nREDDIT CRYPTO HEADLINES:\n${$json.redditHeadlines.join('\\n')}\n\nCOINDESK HEADLINES:\n${$json.coindeskHeadlines.join('\\n')}\n\nINSTRUCTIONS:\n1. Find major events/topics that appear in BOTH feeds (consensus events).\n2. If NO consensus events are found, respond with exactly: {\"consensus\": false, \"events\": []}\n3. If consensus events ARE found, respond with: {\"consensus\": true, \"events\": [{\"title\": \"...\", \"summary\": \"...\"}], \"combined_summary\": \"...\"}\n\nRespond ONLY with valid JSON. No markdown.` }] }], generationConfig: { temperature: 0.1, responseMimeType: 'application/json' } }) }}",
+        "options": {}
+      },
+      "id": "gemini-consensus",
+      "name": "Gemini Consensus Check",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        160
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $('Gemini Consensus Check').first()?.json;\nlet parsed;\ntry {\n  const text = resp?.candidates?.[0]?.content?.parts?.[0]?.text || '{}';\n  parsed = JSON.parse(text);\n} catch(e) {\n  parsed = { consensus: false, events: [] };\n}\n\nif (!parsed || !parsed.consensus || !parsed.events || parsed.events.length === 0) {\n  // HALT: No consensus found or Gemini transient error; stop this branch gracefully\n  return [];\n}\n\nreturn [{\n  json: {\n    consensus: true,\n    events: parsed.events,\n    combined_summary: parsed.combined_summary || parsed.events.map(e => e.summary).join('. '),\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "parse-consensus",
+      "name": "Parse Consensus (Halt if None)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1600,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "key",
+              "value": "={{ $env.GEMINI_API_KEY || 'YOUR_GEMINI_API_KEY' }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'models/gemini-embedding-001', content: { parts: [{ text: $json.combined_summary }] }, outputDimensionality: 768 }) }}",
+        "options": {}
+      },
+      "id": "embed-news",
+      "name": "Gemini Embed News",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1880,
+        160
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL || 'https://your-project.supabase.co' }}/rest/v1/rpc/match_rag_memory",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY || 'YOUR_SUPABASE_SERVICE_ROLE_KEY' }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + ($env.SUPABASE_SERVICE_ROLE_KEY || 'YOUR_SUPABASE_SERVICE_ROLE_KEY') }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query_embedding: $('Gemini Embed News').first()?.json?.embedding?.values || [], match_threshold: 0.35, match_count: 3 }) }}",
+        "options": {}
+      },
+      "id": "rag-search",
+      "name": "Supabase RAG Vector Search",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2160,
+        160
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const consensusData = $('Parse Consensus (Halt if None)').first()?.json || {};\nconst ragResults = $('Supabase RAG Vector Search').first()?.json;\n\nlet historicalContext = 'No relevant historical context found in RAG memory.';\nif (Array.isArray(ragResults) && ragResults.length > 0) {\n  historicalContext = ragResults.map((r, i) => `[${i+1}] (similarity: ${(r.similarity * 100).toFixed(1)}%) ${r.content}`).join('\\n\\n');\n} else if (ragResults && ragResults.data && Array.isArray(ragResults.data)) {\n  historicalContext = ragResults.data.map((r, i) => `[${i+1}] (similarity: ${(r.similarity * 100).toFixed(1)}%) ${r.content}`).join('\\n\\n');\n}\n\nreturn [{\n  json: {\n    breaking_news: consensusData.combined_summary || '',\n    events: consensusData.events || [],\n    historical_context: historicalContext,\n    timestamp: consensusData.timestamp || new Date().toISOString()\n  }\n}];"
+      },
+      "id": "merge-context",
+      "name": "Merge News + RAG Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2440,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "key",
+              "value": "={{ $env.GEMINI_API_KEY || 'YOUR_GEMINI_API_KEY' }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ contents: [{ parts: [{ text: `You are a quantitative crypto market sentiment analyst. Analyze the breaking news and historical context below.\n\nBREAKING NEWS (cross-verified consensus from Reddit + CoinDesk):\n${$json.breaking_news}\n\nHISTORICAL CONTEXT FROM RAG MEMORY:\n${$json.historical_context}\n\nReturn a JSON object with:\n- sentiment_score: integer from -100 (extreme bearish) to +100 (extreme bullish)\n- sentiment_label: one of EXTREME_BEARISH, BEARISH, NEUTRAL, BULLISH, EXTREME_BULLISH\n- confidence: float 0-1\n- analysis: 2-3 sentence analysis\n- is_volatile: boolean (true if score < -60 or score > +60)\n- alert_message: if is_volatile, write a concise Telegram alert message\n\nRespond ONLY with valid JSON.` }] }], generationConfig: { temperature: 0.2, responseMimeType: 'application/json' } }) }}",
+        "options": {}
+      },
+      "id": "gemini-sentiment",
+      "name": "Gemini Sentiment Scoring",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2720,
+        160
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $('Gemini Sentiment Scoring').first()?.json;\nlet sentiment;\ntry {\n  const text = resp?.candidates?.[0]?.content?.parts?.[0]?.text || '{}';\n  sentiment = JSON.parse(text);\n} catch(e) {\n  sentiment = { sentiment_score: 0, is_volatile: false };\n}\n\nif (!sentiment || !sentiment.is_volatile) {\n  // Not volatile enough to alert or transient error; halt branch gracefully\n  return [];\n}\n\nreturn [{\n  json: {\n    sentiment_score: sentiment.sentiment_score,\n    sentiment_label: sentiment.sentiment_label,\n    confidence: sentiment.confidence,\n    analysis: sentiment.analysis,\n    alert_message: sentiment.alert_message || `\u26a1 SENTIMENT ALERT: Score ${sentiment.sentiment_score}/100 (${sentiment.sentiment_label})`,\n    is_volatile: true\n  }\n}];"
+      },
+      "id": "parse-sentiment",
+      "name": "Parse Sentiment (Halt if Calm)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3000,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_URL || 'https://your-project.supabase.co' }}/rest/v1/users?telegram_chat_id=not.is.null&select=telegram_chat_id",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY || 'YOUR_SUPABASE_SERVICE_ROLE_KEY' }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + ($env.SUPABASE_SERVICE_ROLE_KEY || 'YOUR_SUPABASE_SERVICE_ROLE_KEY') }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fetch-tg-users-alert",
+      "name": "Fetch Telegram Users (Alert)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3280,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const sentimentData = $('Parse Sentiment (Halt if Calm)').first().json;\nconst usersResp = $('Fetch Telegram Users (Alert)').first().json;\n\nlet users = [];\nif (Array.isArray(usersResp)) {\n  users = usersResp;\n} else if (Array.isArray(usersResp?.data)) {\n  users = usersResp.data;\n}\n\nif (users.length === 0) return [];\n\nconst score = sentimentData.sentiment_score;\nconst emoji = score > 60 ? '\ud83d\udfe2\ud83d\ude80' : '\ud83d\udd34\u26a0\ufe0f';\nconst msg = `${emoji} *QUANT TERMINAL // SENTIMENT ALERT*\\n\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\\n\ud83d\udcca *Score:* \\`${score}/100\\` (${sentimentData.sentiment_label})\\n\ud83c\udfaf *Confidence:* \\`${(sentimentData.confidence * 100).toFixed(0)}%\\`\\n\\n${sentimentData.analysis}\\n\\n\u26a1 ${sentimentData.alert_message}\\n\\n\ud83d\udd52 \\`${new Date().toISOString().slice(0,19).replace('T',' ')} UTC\\``;\n\nreturn users.map(u => ({\n  json: {\n    chat_id: u.telegram_chat_id,\n    message: msg\n  }\n}));"
+      },
+      "id": "format-alerts",
+      "name": "Format Sentiment Alerts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3560,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://api.telegram.org/bot' + ($env.TELEGRAM_BOT_TOKEN || 'YOUR_TELEGRAM_BOT_TOKEN') + '/sendMessage' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ chat_id: $json.chat_id, text: $json.message, parse_mode: 'Markdown' }) }}",
+        "options": {}
+      },
+      "id": "broadcast-alert",
+      "name": "Broadcast Sentiment Alert (TG)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3840,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_URL || 'https://your-project.supabase.co' }}/rest/v1/paper_wallets?select=user_id,asset_symbol,balance",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY || 'YOUR_SUPABASE_SERVICE_ROLE_KEY' }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + ($env.SUPABASE_SERVICE_ROLE_KEY || 'YOUR_SUPABASE_SERVICE_ROLE_KEY') }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fetch-wallets",
+      "name": "Fetch All Paper Wallets",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Collapse incoming wallet rows to exactly 1 trigger item to prevent downstream duplication\nreturn [{ json: { step: 'wallets_loaded' } }];"
+      },
+      "id": "sync-trigger-1",
+      "name": "Sync Trigger 1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.binance.com/api/v3/ticker/price?symbols=%5B%22BTCUSDT%22,%22ETHUSDT%22,%22SOLUSDT%22,%22DOGEUSDT%22%5D",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) QuantTerminal/1.0"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "binance-all",
+      "name": "Binance Spot Tickers",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Collapse incoming tickers to exactly 1 trigger item to prevent downstream duplication\nreturn [{ json: { step: 'tickers_loaded' } }];"
+      },
+      "id": "sync-trigger-2",
+      "name": "Sync Trigger 2",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_URL || 'https://your-project.supabase.co' }}/rest/v1/users?telegram_chat_id=not.is.null&select=id,telegram_chat_id",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY || 'YOUR_SUPABASE_SERVICE_ROLE_KEY' }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + ($env.SUPABASE_SERVICE_ROLE_KEY || 'YOUR_SUPABASE_SERVICE_ROLE_KEY') }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fetch-tg-users-update",
+      "name": "Fetch Telegram Users (Update)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 1. Gather wallet data\nconst walletsItems = $('Fetch All Paper Wallets').all();\nconst userMap = {};\nfor (const item of walletsItems) {\n  const w = item.json;\n  if (!w || !w.user_id) continue;\n  if (!userMap[w.user_id]) userMap[w.user_id] = {};\n  userMap[w.user_id][w.asset_symbol] = parseFloat(w.balance) || 0;\n}\n\n// 2. Parse Binance targeted tickers\nconst tickerItems = $('Binance Spot Tickers').all();\nconst priceMap = { USD: 1.0 };\nconst symbolMapping = {\n  'BTCUSDT': 'BTC',\n  'ETHUSDT': 'ETH',\n  'SOLUSDT': 'SOL',\n  'DOGEUSDT': 'DOGE'\n};\n\nfor (const item of tickerItems) {\n  const t = item.json;\n  if (t && symbolMapping[t.symbol]) {\n    priceMap[symbolMapping[t.symbol]] = parseFloat(t.price || t.lastPrice) || 0;\n  }\n}\n\n// Fallback prices\nif (!priceMap.BTC) priceMap.BTC = 79900;\nif (!priceMap.ETH) priceMap.ETH = 2500;\nif (!priceMap.SOL) priceMap.SOL = 104;\nif (!priceMap.DOGE) priceMap.DOGE = 0.09;\n\n// 3. Get telegram linked users\nconst userItems = $('Fetch Telegram Users (Update)').all();\nconst tgUsers = [];\nfor (const item of userItems) {\n  const u = item.json;\n  if (u && u.telegram_chat_id) {\n    tgUsers.push(u);\n  }\n}\n\nif (tgUsers.length === 0) return [];\n\nconst messages = [];\nfor (const u of tgUsers) {\n  const balances = userMap[u.id];\n  if (!balances) continue;\n\n  let totalUsd = 0;\n  const lines = [];\n\n  // USD Cash first\n  const usdBal = balances['USD'] || 0;\n  totalUsd += usdBal;\n  lines.push(`\ud83d\udcb5 USD Cash: $${usdBal.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}`);\n\n  // Other assets\n  for (const [sym, bal] of Object.entries(balances)) {\n    if (sym === 'USD' || bal <= 0) continue;\n    const price = priceMap[sym] || 0;\n    const val = bal * price;\n    totalUsd += val;\n    lines.push(`\ud83e\ude99 ${sym}: ${Number(bal).toFixed(4)} (~$${val.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})})`);\n  }\n\n  const pnl = totalUsd - 100000;\n  const pnlSign = pnl >= 0 ? '+' : '';\n  const pnlEmoji = pnl >= 0 ? '\ud83d\udcc8' : '\ud83d\udcc9';\n\n  const msg = `\u23f1\ufe0f *15-MIN PORTFOLIO UPDATE*\\n\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\\n${lines.join('\\n')}\\n\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\\n\ud83d\udcbc *Total Value:* \\`$${totalUsd.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}\\`\\n${pnlEmoji} *PnL:* \\`${pnlSign}$${pnl.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}\\`\\n\ud83d\udd52 \\`${new Date().toISOString().slice(0,19).replace('T',' ')} UTC\\``;\n\n  messages.push({ json: { chat_id: u.telegram_chat_id, message: msg } });\n}\n\nreturn messages;"
+      },
+      "id": "format-updates",
+      "name": "Format 15-Min Portfolio Messages",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://api.telegram.org/bot' + ($env.TELEGRAM_BOT_TOKEN || 'YOUR_TELEGRAM_BOT_TOKEN') + '/sendMessage' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ chat_id: $json.chat_id, text: $json.message, parse_mode: 'Markdown' }) }}",
+        "options": {}
+      },
+      "id": "broadcast-update",
+      "name": "Broadcast 15-Min Update (TG)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1920,
+        480
+      ]
+    }
+  ],
+  "connections": {
+    "15-Min Cron Trigger": {
+      "main": [
+        [
+          {
+            "node": "Fetch All Paper Wallets",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Reddit Crypto RSS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reddit Crypto RSS": {
+      "main": [
+        [
+          {
+            "node": "CoinDesk RSS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CoinDesk RSS": {
+      "main": [
+        [
+          {
+            "node": "Extract Headlines",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Headlines": {
+      "main": [
+        [
+          {
+            "node": "Gemini Consensus Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Consensus Check": {
+      "main": [
+        [
+          {
+            "node": "Parse Consensus (Halt if None)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Consensus (Halt if None)": {
+      "main": [
+        [
+          {
+            "node": "Gemini Embed News",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Embed News": {
+      "main": [
+        [
+          {
+            "node": "Supabase RAG Vector Search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase RAG Vector Search": {
+      "main": [
+        [
+          {
+            "node": "Merge News + RAG Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge News + RAG Context": {
+      "main": [
+        [
+          {
+            "node": "Gemini Sentiment Scoring",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Sentiment Scoring": {
+      "main": [
+        [
+          {
+            "node": "Parse Sentiment (Halt if Calm)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Sentiment (Halt if Calm)": {
+      "main": [
+        [
+          {
+            "node": "Fetch Telegram Users (Alert)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Sentiment Alerts": {
+      "main": [
+        [
+          {
+            "node": "Broadcast Sentiment Alert (TG)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Telegram Users (Alert)": {
+      "main": [
+        [
+          {
+            "node": "Format Sentiment Alerts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch All Paper Wallets": {
+      "main": [
+        [
+          {
+            "node": "Sync Trigger 1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sync Trigger 1": {
+      "main": [
+        [
+          {
+            "node": "Binance Spot Tickers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Binance Spot Tickers": {
+      "main": [
+        [
+          {
+            "node": "Sync Trigger 2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sync Trigger 2": {
+      "main": [
+        [
+          {
+            "node": "Fetch Telegram Users (Update)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Telegram Users (Update)": {
+      "main": [
+        [
+          {
+            "node": "Format 15-Min Portfolio Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format 15-Min Portfolio Messages": {
+      "main": [
+        [
+          {
+            "node": "Broadcast 15-Min Update (TG)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "staticData": null
+}
